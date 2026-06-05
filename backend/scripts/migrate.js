@@ -1,7 +1,7 @@
 const { Pool } = require('pg');
 
 const pool = new Pool({
-  connectionString: process.env.DATABASE_URL || 'postgres://rubick:rubick_secret@localhost:5432/rubick_catalog'
+  connectionString: process.env.DATABASE_URL || 'postgres://rubick:rubick_secret@localhost:5433/rubick_catalog'
 });
 
 async function migrate() {

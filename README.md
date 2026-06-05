@@ -67,6 +67,8 @@ This repository contains a complete implementation of a **multi-platform catalog
 - Docker Desktop (or Docker Engine + Compose)
 - Git
 
+PostgreSQL is exposed on host port **5433** (not 5432) and Redis on **6380** (not 6379) so they do not conflict with local installs.
+
 ### Steps
 
 ```bash

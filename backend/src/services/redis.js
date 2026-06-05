@@ -1,7 +1,7 @@
 const Redis = require('ioredis');
 
 function createRedisClient() {
-  const client = new Redis(process.env.REDIS_URL || 'redis://localhost:6379', {
+  const client = new Redis(process.env.REDIS_URL || 'redis://localhost:6380', {
     maxRetriesPerRequest: 3,
     lazyConnect: true
   });
