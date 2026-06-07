@@ -115,6 +115,10 @@ open http://localhost:5173
 | `src/routes/products.js` | Cursor-based pagination, fuzzy search, compare endpoint |
 | `src/routes/prices.js` | Price history, latest prices, SSE simulation |
 | `src/routes/dedup.js` | Proxy to ML service for dedup and enrichment |
+| `src/services/crawler.js` | Background worker — HTTP price fetch + SSE push |
+| `src/services/fetchers/` | Platform HTTP fetchers (Myntra, Amazon, Flipkart) |
+| `src/data/productUrls.js` | Real product page URLs for HTTP crawling |
+| `src/services/priceUpdate.js` | Shared price write + cache invalidation + pub/sub |
 | `src/services/redis.js` | Redis client, TTL constants, jitter helper |
 | `src/services/db.js` | PostgreSQL connection pool |
 | `scripts/migrate.js` | Schema creation with partitioned tables and indexes |
@@ -171,6 +175,16 @@ POST /api/dedup/enrich  { productId }
 GET  /api/stream/prices   (SSE — text/event-stream)
 ```
 
+### Crawler
+
+```
+GET  /api/crawler/status
+POST /api/crawler/pause
+POST /api/crawler/resume
+POST /api/crawler/tick
+POST /api/crawler/test-fetch   { platform, url }
+```
+
 ---
 
 ## Key Design Decisions
@@ -209,4 +223,4 @@ Rule-based enrichment handles ~80% of products at zero cost. LLM (GPT-4o-mini) i
 |---|---|
 | [`docs/SYSTEM_DESIGN.md`](docs/SYSTEM_DESIGN.md) | Part 1: Full system design with schemas, scaling strategy |
 | [`docs/PROBLEM_SOLVING.md`](docs/PROBLEM_SOLVING.md) | Part 3: Dedup pipeline, scraping, 10x scale answers |
-| [`docs/LEADERSHIP.md`](docs/LEADERSHIP.md) | Part 4: Team structure, code quality, ownership principles |
+| [`postman/Rubick-AI.postman_collection.json`](postman/Rubick-AI.postman_collection.json) | Postman collection for all APIs + operation workflows |

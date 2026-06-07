@@ -1,23 +1,14 @@
-import { useState, useEffect } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useState } from 'react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import axios from 'axios'
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001'
 
-const PLATFORMS = [
-  { name: 'amazon', color: '#f59e0b', successRate: 97, avgLatency: 1.2 },
-  { name: 'flipkart', color: '#3b82f6', successRate: 94, avgLatency: 1.8 },
-  { name: 'myntra', color: '#ec4899', successRate: 98, avgLatency: 0.9 }
-]
-
-const METRICS = [
-  { label: 'Products Crawled Today', value: '482,340', trend: '+12%', positive: true },
-  { label: 'Avg Crawl Latency', value: '1.3s', trend: '-8%', positive: true },
-  { label: 'Cache Hit Rate', value: '87%', trend: '+3%', positive: true },
-  { label: 'Enrichment Queue', value: '1,240', trend: '-15%', positive: true },
-  { label: 'Dedup Precision', value: '96.2%', trend: '+0.4%', positive: true },
-  { label: 'LLM Token Spend', value: '$42/day', trend: '-60%', positive: true }
-]
+const PLATFORM_COLORS = {
+  amazon: '#f59e0b',
+  flipkart: '#3b82f6',
+  myntra: '#ec4899'
+}
 
 function StatusBadge({ status }) {
   const colors = {
@@ -34,20 +25,20 @@ function StatusBadge({ status }) {
 }
 
 export default function CrawlMonitor() {
-  const [simulateLoading, setSimulateLoading] = useState(false)
-  const [simulateResult, setSimulateResult] = useState(null)
-  const [crawlJobs, setCrawlJobs] = useState([
-    { id: 'job_001', platform: 'amazon', category: 'Electronics', status: 'running', products: 12450, started: '2 min ago' },
-    { id: 'job_002', platform: 'flipkart', category: 'Footwear', status: 'running', products: 8920, started: '5 min ago' },
-    { id: 'job_003', platform: 'myntra', category: 'Clothing', status: 'running', products: 15300, started: '1 min ago' },
-    { id: 'job_004', platform: 'amazon', category: 'Beauty', status: 'idle', products: 0, started: 'Scheduled' },
-    { id: 'job_005', platform: 'flipkart', category: 'Electronics', status: 'paused', products: 3200, started: '12 min ago' }
-  ])
+  const queryClient = useQueryClient()
+  const [actionLoading, setActionLoading] = useState(null)
+  const [actionResult, setActionResult] = useState(null)
 
   const { data: health } = useQuery({
     queryKey: ['health'],
     queryFn: () => axios.get(`${API_URL}/health`).then(r => r.data),
     refetchInterval: 10000
+  })
+
+  const { data: crawler } = useQuery({
+    queryKey: ['crawler-status'],
+    queryFn: () => axios.get(`${API_URL}/api/crawler/status`).then(r => r.data),
+    refetchInterval: 5000
   })
 
   const { data: latestPrices } = useQuery({
@@ -56,36 +47,103 @@ export default function CrawlMonitor() {
     refetchInterval: 15000
   })
 
-  // Simulate a price change for SSE demo
-  const simulatePriceChange = async () => {
-    setSimulateLoading(true)
+  const runAction = async (action) => {
+    setActionLoading(action)
+    setActionResult(null)
     try {
-      const productRes = await axios.get(`${API_URL}/api/products`, { params: { limit: 1 } })
-      const product = productRes.data?.data?.[0]
-      if (!product) throw new Error('No products found')
-
-      const platform = product.platforms?.[0]?.name || 'amazon'
-      const currentPrice = parseFloat(product.platforms?.[0]?.price?.current || 1000)
-      const newPrice = (currentPrice * (0.85 + Math.random() * 0.3)).toFixed(2)
-
-      const res = await axios.post(`${API_URL}/api/prices/simulate`, {
-        productId: product.product_id,
-        platform,
-        newPrice: parseFloat(newPrice)
-      })
-      setSimulateResult({ product: product.title, platform, newPrice, success: true })
+      if (action === 'pause') await axios.post(`${API_URL}/api/crawler/pause`)
+      if (action === 'resume') await axios.post(`${API_URL}/api/crawler/resume`)
+      if (action === 'tick') await axios.post(`${API_URL}/api/crawler/tick`)
+      if (action === 'simulate') await axios.post(`${API_URL}/api/crawler/tick`)
+      await queryClient.invalidateQueries({ queryKey: ['crawler-status'] })
+      setActionResult({ success: true, action })
     } catch (e) {
-      setSimulateResult({ error: e.message })
+      setActionResult({ error: e.message })
     } finally {
-      setSimulateLoading(false)
+      setActionLoading(null)
     }
   }
 
+  const metrics = crawler?.metrics
+  const jobs = crawler?.jobs || []
+  const platforms = crawler?.platforms || []
+  const recentEvents = metrics?.recentEvents || []
+
+  const metricCards = [
+    {
+      label: 'Products Crawled Today',
+      value: metrics?.productsCrawledToday?.toLocaleString() ?? '0',
+      sub: `Every ${metrics?.crawlIntervalSec ?? '—'}s`
+    },
+    {
+      label: 'Avg Crawl Latency',
+      value: metrics?.avgCrawlLatencySec ? `${metrics.avgCrawlLatencySec}s` : '—',
+      sub: `${metrics?.batchSize ?? 0} products/tick`
+    },
+    {
+      label: 'Crawler Uptime',
+      value: metrics?.uptimeSec ? `${Math.floor(metrics.uptimeSec / 60)}m` : '—',
+      sub: crawler?.paused ? 'Paused' : 'Running'
+    },
+    {
+      label: 'Active Jobs',
+      value: jobs.filter(j => j.status === 'running').length.toString(),
+      sub: `${jobs.length} total`
+    },
+    {
+      label: 'Last Tick',
+      value: metrics?.lastTickAt
+        ? new Date(metrics.lastTickAt).toLocaleTimeString('en-IN')
+        : '—',
+      sub: metrics?.lastError ? 'Last error' : 'Live'
+    },
+    {
+      label: 'HTTP Fetches OK',
+      value: metrics?.httpStats?.success?.toLocaleString() ?? '0',
+      sub: `${metrics?.httpStats?.fallback ?? 0} simulated fallback`
+    },
+    {
+      label: 'HTTP Failed',
+      value: metrics?.httpStats?.failed?.toLocaleString() ?? '0',
+      sub: metrics?.httpEnabled ? 'Real HTTP on' : 'HTTP disabled'
+    }
+  ]
+
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-gray-900 mb-1">Crawl Monitor</h1>
-        <p className="text-gray-500 text-sm">Real-time system health, crawl status, and observability metrics</p>
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900 mb-1">Crawl Monitor</h1>
+          <p className="text-gray-500 text-sm">
+            Live background crawler — updates prices every {metrics?.crawlIntervalSec ?? 15}s and pushes SSE alerts automatically
+          </p>
+        </div>
+        <div className="flex gap-2">
+          {crawler?.paused ? (
+            <button
+              onClick={() => runAction('resume')}
+              disabled={!!actionLoading}
+              className="px-4 py-2 bg-green-600 text-white rounded-lg text-sm font-medium hover:bg-green-700 disabled:opacity-50"
+            >
+              {actionLoading === 'resume' ? 'Resuming...' : '▶ Resume Crawler'}
+            </button>
+          ) : (
+            <button
+              onClick={() => runAction('pause')}
+              disabled={!!actionLoading}
+              className="px-4 py-2 bg-yellow-500 text-white rounded-lg text-sm font-medium hover:bg-yellow-600 disabled:opacity-50"
+            >
+              {actionLoading === 'pause' ? 'Pausing...' : '⏸ Pause Crawler'}
+            </button>
+          )}
+          <button
+            onClick={() => runAction('tick')}
+            disabled={!!actionLoading}
+            className="px-4 py-2 bg-brand-600 text-white rounded-lg text-sm font-medium hover:bg-brand-700 disabled:opacity-50"
+          >
+            {actionLoading === 'tick' ? 'Crawling...' : '⚡ Run Tick Now'}
+          </button>
+        </div>
       </div>
 
       {/* System Health */}
@@ -111,15 +169,24 @@ export default function CrawlMonitor() {
                 {health?.services?.redis || '...'}
               </span>
             </div>
+            <div className="flex justify-between">
+              <span>Crawler</span>
+              <span className={
+                health?.services?.crawler === 'healthy' ? 'text-green-600'
+                  : health?.services?.crawler === 'paused' ? 'text-yellow-600'
+                  : 'text-gray-600'
+              }>
+                {health?.services?.crawler || '...'}
+              </span>
+            </div>
           </div>
         </div>
 
-        {/* Platform Status */}
-        {PLATFORMS.map(p => (
+        {platforms.map(p => (
           <div key={p.name} className="bg-white rounded-xl border border-gray-200 p-4">
             <div className="flex items-center justify-between mb-2">
               <span className="font-semibold text-sm capitalize">{p.name}</span>
-              <StatusBadge status="running" />
+              <StatusBadge status={p.status} />
             </div>
             <div className="space-y-2">
               <div>
@@ -128,12 +195,19 @@ export default function CrawlMonitor() {
                   <span className="font-medium text-gray-800">{p.successRate}%</span>
                 </div>
                 <div className="w-full bg-gray-100 rounded-full h-1.5">
-                  <div className="h-1.5 rounded-full" style={{ width: `${p.successRate}%`, backgroundColor: p.color }} />
+                  <div
+                    className="h-1.5 rounded-full"
+                    style={{ width: `${p.successRate}%`, backgroundColor: PLATFORM_COLORS[p.name] }}
+                  />
                 </div>
               </div>
               <div className="flex justify-between text-xs">
                 <span className="text-gray-500">Avg Latency</span>
                 <span className="font-medium">{p.avgLatency}s</span>
+              </div>
+              <div className="flex justify-between text-xs">
+                <span className="text-gray-500">Total Crawls</span>
+                <span className="font-medium">{p.crawlsTotal}</span>
               </div>
             </div>
           </div>
@@ -142,11 +216,11 @@ export default function CrawlMonitor() {
 
       {/* Key Metrics */}
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
-        {METRICS.map(m => (
+        {metricCards.map(m => (
           <div key={m.label} className="bg-white rounded-xl border border-gray-200 p-3">
             <p className="text-xs text-gray-500 leading-tight mb-1">{m.label}</p>
             <p className="text-lg font-bold text-gray-900">{m.value}</p>
-            <p className={`text-xs font-medium ${m.positive ? 'text-green-600' : 'text-red-600'}`}>{m.trend}</p>
+            <p className="text-xs font-medium text-green-600">{m.sub}</p>
           </div>
         ))}
       </div>
@@ -155,20 +229,26 @@ export default function CrawlMonitor() {
       <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
         <div className="p-4 border-b bg-gray-50 flex items-center justify-between">
           <h2 className="font-semibold text-gray-800">Active Crawl Jobs</h2>
-          <span className="text-xs text-gray-500">{crawlJobs.filter(j => j.status === 'running').length} running</span>
+          <span className="text-xs text-gray-500">{jobs.filter(j => j.status === 'running').length} running</span>
         </div>
         <div className="divide-y">
-          {crawlJobs.map(job => (
+          {jobs.length === 0 ? (
+            <div className="p-6 text-center text-sm text-gray-400">Loading crawler jobs...</div>
+          ) : jobs.map(job => (
             <div key={job.id} className="flex items-center justify-between p-4 hover:bg-gray-50">
               <div className="flex items-center gap-3">
-                <div className={`w-2 h-2 rounded-full ${job.status === 'running' ? 'bg-green-500 animate-pulse' : job.status === 'paused' ? 'bg-yellow-500' : 'bg-gray-300'}`} />
+                <div className={`w-2 h-2 rounded-full ${
+                  job.status === 'running' ? 'bg-green-500 animate-pulse'
+                    : job.status === 'paused' ? 'bg-yellow-500'
+                    : 'bg-gray-300'
+                }`} />
                 <div>
                   <p className="text-sm font-medium capitalize">{job.platform} — {job.category}</p>
                   <p className="text-xs text-gray-500">Started {job.started}</p>
                 </div>
               </div>
               <div className="flex items-center gap-4">
-                <span className="text-sm text-gray-700">{job.products.toLocaleString()} products</span>
+                <span className="text-sm text-gray-700">{job.productsCrawled.toLocaleString()} crawled</span>
                 <StatusBadge status={job.status} />
               </div>
             </div>
@@ -176,30 +256,48 @@ export default function CrawlMonitor() {
         </div>
       </div>
 
-      {/* SSE Demo */}
+      {/* Recent crawl events */}
       <div className="bg-white rounded-xl border border-gray-200 p-5">
-        <h2 className="font-semibold text-gray-800 mb-1">Live Price Update Demo (SSE)</h2>
+        <h2 className="font-semibold text-gray-800 mb-1">Recent Crawl Events (Live SSE)</h2>
         <p className="text-xs text-gray-500 mb-4">
-          Click the button to simulate a price change. The green banner at the top of the page will update instantly via Server-Sent Events — no polling required.
+          The crawler runs automatically in the background. Each price update is written to PostgreSQL and pushed via Server-Sent Events — watch the green banner at the top of the page.
         </p>
-        <button
-          onClick={simulatePriceChange}
-          disabled={simulateLoading}
-          className="px-5 py-2 bg-green-600 text-white rounded-lg text-sm font-medium hover:bg-green-700 disabled:opacity-50 transition-colors"
-        >
-          {simulateLoading ? '⏳ Simulating...' : '⚡ Simulate Price Change'}
-        </button>
 
-        {simulateResult && !simulateResult.error && (
-          <div className="mt-4 p-3 bg-green-50 border border-green-200 rounded-lg text-sm text-green-800">
-            ✓ Price change published! <strong>{simulateResult.platform?.toUpperCase()}</strong> — {simulateResult.product?.slice(0, 40)}...
-            → New price: <strong>₹{Number(simulateResult.newPrice).toLocaleString('en-IN')}</strong>
-            <p className="text-xs mt-1 text-green-600">Check the green banner at the top of the page for the live SSE update.</p>
+        {metrics?.lastError && (
+          <div className="mb-4 p-3 bg-yellow-50 border border-yellow-200 rounded-lg text-sm text-yellow-800">
+            Last crawl error: {metrics.lastError}
           </div>
         )}
-        {simulateResult?.error && (
+
+        {recentEvents.length === 0 ? (
+          <div className="text-sm text-gray-400 py-4 text-center">
+            Waiting for first crawl tick (starts ~3s after backend boot)...
+          </div>
+        ) : (
+          <div className="space-y-2 max-h-64 overflow-y-auto">
+            {recentEvents.map((ev, i) => (
+              <div key={`${ev.productId}-${ev.timestamp}-${i}`} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg text-sm">
+                <div>
+                  <span className="font-medium capitalize text-brand-700">{ev.platform}</span>
+                  <span className="text-gray-600 ml-2">{ev.title?.slice(0, 45)}...</span>
+                </div>
+                <div className="text-right flex-shrink-0 ml-4">
+                  <p className="font-bold text-gray-900">₹{Number(ev.newPrice).toLocaleString('en-IN')}</p>
+                  <p className="text-xs text-gray-400">{ev.latencyMs}ms · {ev.source}/{ev.fetchMethod} · {new Date(ev.timestamp).toLocaleTimeString('en-IN')}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {actionResult?.success && (
+          <div className="mt-4 p-3 bg-green-50 border border-green-200 rounded-lg text-sm text-green-800">
+            Crawler action completed: {actionResult.action}
+          </div>
+        )}
+        {actionResult?.error && (
           <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
-            {simulateResult.error}
+            {actionResult.error}
           </div>
         )}
       </div>

@@ -1,5 +1,6 @@
 const { createPool } = require('../services/db');
 const { createRedisClient, CACHE_TTL, ttlWithJitter } = require('../services/redis');
+const { recordPriceChange } = require('../services/priceUpdate');
 
 const redis = createRedisClient();
 
@@ -65,24 +66,17 @@ async function priceRoutes(fastify) {
       return reply.status(400).send({ error: 'productId, platform, and newPrice are required' });
     }
 
-    // Write to price_history
-    await db.query(
-      `INSERT INTO price_history (product_id, platform, price, currency, availability)
-       VALUES ($1, $2, $3, 'INR', 'in_stock')`,
-      [productId, platform, newPrice]
-    );
-
-    // Publish to Redis pub/sub for SSE push
-    const event = JSON.stringify({
-      type: 'PRICE_CHANGE',
-      productId,
-      platform,
-      newPrice,
-      timestamp: new Date().toISOString()
-    });
-    await redis.publish('price:alerts', event);
-
-    return reply.send({ success: true, event: JSON.parse(event) });
+    try {
+      const event = await recordPriceChange(db, redis, {
+        productId,
+        platform,
+        newPrice,
+        source: 'manual'
+      });
+      return reply.send({ success: true, event });
+    } catch (err) {
+      return reply.status(404).send({ error: err.message });
+    }
   });
 }
 

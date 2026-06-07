@@ -1,5 +1,6 @@
 const { Pool } = require('pg');
 const crypto = require('crypto');
+const { getProductUrl, isHttpCrawlable } = require('../src/data/productUrls');
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL || 'postgres://rubick:rubick_secret@localhost:5433/rubick_catalog'
@@ -105,11 +106,21 @@ async function seed() {
     for (const p of PRODUCTS) {
       const productId = makeProductId(p.brand, p.title);
 
-      // Build platforms JSONB array
-      const platformsData = p.platforms.map(name => ({
+      // Build platforms JSONB array with real URLs where available
+      const platformsData = p.platforms.map(name => {
+        const realUrl = getProductUrl(p.brand, p.title, name);
+        const url = realUrl || (
+          name === 'flipkart'
+            ? `https://www.flipkart.com/p/itm${productId.slice(0, 8)}`
+            : name === 'myntra'
+              ? `https://www.myntra.com/p/${productId.slice(0, 8)}`
+              : `https://www.amazon.in/dp/${productId.slice(0, 8)}`
+        );
+        return {
         name,
         external_id: `${name.toUpperCase().slice(0, 3)}_${productId.slice(0, 8)}`,
-        url: `https://${name}.in/dp/${productId.slice(0, 8)}`,
+        url,
+        http_crawlable: isHttpCrawlable(url),
         price: {
           current: randomPrice(p.basePrice),
           original: randomPrice(p.basePrice * 1.1),
@@ -120,7 +131,8 @@ async function seed() {
         rating: { score: parseFloat((3.5 + Math.random() * 1.5).toFixed(1)), count: Math.floor(Math.random() * 5000) + 100 },
         seller: name === 'amazon' ? 'Cloudtail India' : name === 'flipkart' ? 'RetailNet' : 'Myntra Fashion',
         last_crawled_at: new Date().toISOString()
-      }));
+      };
+      });
 
       await client.query(
         `INSERT INTO products (product_id, title, brand, category, attributes, platforms, enrichment_status, confidence_scores)

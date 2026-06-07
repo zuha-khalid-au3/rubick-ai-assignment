@@ -32,6 +32,7 @@ services:
       context: ./backend
       dockerfile: Dockerfile
     container_name: rubick_backend
+    command: sh -c "npm install && node src/index.js"
     environment:
       NODE_ENV: development
       PORT: 3001
@@ -39,6 +40,12 @@ services:
       REDIS_URL: redis://redis:6379
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       ML_SERVICE_URL: http://ml-service:8000
+      CRAWLER_ENABLED: ${CRAWLER_ENABLED:-true}
+      CRAWL_INTERVAL_MS: ${CRAWL_INTERVAL_MS:-15000}
+      CRAWL_BATCH_SIZE: ${CRAWL_BATCH_SIZE:-2}
+      CRAWL_HTTP_ENABLED: ${CRAWL_HTTP_ENABLED:-true}
+      CRAWL_HTTP_FALLBACK: ${CRAWL_HTTP_FALLBACK:-true}
+      SCRAPERAPI_KEY: ${SCRAPERAPI_KEY:-}
     ports:
       - "3001:3001"
     depends_on:

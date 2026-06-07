@@ -62,8 +62,13 @@ function App() {
               Live Price Update:
             </span>
             <span className="text-green-800">
-              {liveAlerts[0].platform?.toUpperCase()} — Product {liveAlerts[0].productId?.slice(0, 8)}...
-              new price ₹{liveAlerts[0].newPrice?.toLocaleString('en-IN')}
+              {liveAlerts[0].platform?.toUpperCase()} — {liveAlerts[0].title || `Product ${liveAlerts[0].productId?.slice(0, 8)}`}
+              {' '}→ ₹{Number(liveAlerts[0].newPrice).toLocaleString('en-IN')}
+              {liveAlerts[0].fetchMethod === 'http_myntra' || liveAlerts[0].source?.includes('http') ? (
+                <span className="ml-2 text-xs text-green-600 font-normal">(live fetch)</span>
+              ) : (
+                <span className="ml-2 text-xs text-yellow-700 font-normal">(simulated)</span>
+              )}
             </span>
           </div>
         </div>

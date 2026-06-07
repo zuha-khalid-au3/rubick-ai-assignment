@@ -1,0 +1,391 @@
+{
+  "info": {
+    "_postman_id": "rubick-ai-catalog-api",
+    "name": "Rubick AI — Catalog Intelligence API",
+    "description": "# Rubick AI Postman Collection\n\nComplete API collection for the Rubick AI multi-platform catalog intelligence engine.\n\n## Prerequisites\n\n1. Start services: `docker compose up --build`\n2. Run migrations: `docker compose exec backend node scripts/migrate.js`\n3. Seed data: `docker compose exec backend node scripts/seed.js`\n4. Import **Rubick-AI-Local.postman_environment.json** and select it\n\n## Recommended operation order\n\n### 1. Setup & verify\n- **Backend Health** → confirms Postgres + Redis + Crawler\n- **ML Service Health** → confirms Python ML service\n\n### 2. Browse catalog\n- **List Products** → saves `product_id` automatically\n- **Get Product by ID** → full product detail\n- **Search Products (Nike)** → fuzzy search demo\n- **Compare Products** → side-by-side (needs 2 IDs from list)\n\n### 3. Price tracking\n- **Latest Prices** → most recent price per platform\n- **Price History** → 90-day chart data\n- **Simulate Price Change** → triggers SSE live banner\n\n### 4. Deduplication & enrichment\n- **Dedup Check** → 6-stage pipeline demo\n- **Get Dedup Mappings** → cross-platform links\n- **Enrich Product** → rule-based + optional LLM\n\n### 5. Crawler (real-time HTTP)\n- **Crawler Status** → live jobs + HTTP stats\n- **Test HTTP Fetch (Myntra)** → real price from website\n- **Run Crawl Tick Now** → force one crawl cycle\n- **Pause / Resume Crawler** → control background worker\n\n### 6. ML service (direct)\n- Call ML endpoints directly when debugging without backend proxy\n\n### 7. Live streaming (SSE)\n- Open `GET {{backend_url}}/api/stream/prices` in browser or use Postman's SSE support\n- Then run **Simulate Price Change** or **Run Crawl Tick** to see events\n\n## Service URLs\n\n| Service | Default URL |\n|---------|-------------|\n| Backend | http://localhost:3001 |\n| ML Service | http://localhost:8000 |\n| Frontend | http://localhost:5173 |",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "backend_url", "value": "http://localhost:3001" },
+    { "key": "ml_url", "value": "http://localhost:8000" },
+    { "key": "product_id", "value": "" },
+    { "key": "product_id_2", "value": "" }
+  ],
+  "item": [
+    {
+      "name": "1. Setup & Health",
+      "description": "Verify all services are running before testing other endpoints.",
+      "item": [
+        {
+          "name": "Backend Health",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{backend_url}}/health",
+            "description": "Checks PostgreSQL, Redis, and crawler status.\n\n**Expected:** `{ \"status\": \"ok\", \"services\": { \"postgres\": \"healthy\", \"redis\": \"healthy\", \"crawler\": \"healthy\" } }`"
+          },
+          "response": []
+        },
+        {
+          "name": "ML Service Health",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{ml_url}}/health",
+            "description": "Direct health check on the Python FastAPI ML service."
+          },
+          "response": []
+        },
+        {
+          "name": "ML Service Root",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{ml_url}}/",
+            "description": "Returns ML service name and version."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "2. Products",
+      "description": "Catalog search, detail, and comparison APIs.",
+      "item": [
+        {
+          "name": "List Products",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  const json = pm.response.json();",
+                  "  if (json.data && json.data.length > 0) {",
+                  "    pm.collectionVariables.set('product_id', json.data[0].product_id);",
+                  "    if (json.data.length > 1) {",
+                  "      pm.collectionVariables.set('product_id_2', json.data[1].product_id);",
+                  "    }",
+                  "    console.log('Saved product_id:', json.data[0].product_id);",
+                  "  }",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{backend_url}}/api/products?limit=20",
+              "host": ["{{backend_url}}"],
+              "path": ["api", "products"],
+              "query": [
+                { "key": "limit", "value": "20", "description": "Page size (1-100)" },
+                { "key": "q", "value": "", "description": "Search query", "disabled": true },
+                { "key": "category", "value": "Footwear", "description": "L1 category filter", "disabled": true },
+                { "key": "brand", "value": "", "description": "Brand filter", "disabled": true },
+                { "key": "cursor", "value": "", "description": "Base64 cursor for next page", "disabled": true }
+              ]
+            },
+            "description": "Cursor-based product listing with optional search/filters.\n\n**Auto-saves** first product ID to `{{product_id}}` for use in other requests.\n\nCheck `X-Cache` header: HIT or MISS."
+          },
+          "response": []
+        },
+        {
+          "name": "Search Products (Nike)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{backend_url}}/api/products?q=nike&limit=10",
+              "host": ["{{backend_url}}"],
+              "path": ["api", "products"],
+              "query": [
+                { "key": "q", "value": "nike" },
+                { "key": "limit", "value": "10" }
+              ]
+            },
+            "description": "Fuzzy search across product titles and brands."
+          },
+          "response": []
+        },
+        {
+          "name": "Filter by Category (Electronics)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{backend_url}}/api/products?category=Electronics&limit=10",
+              "host": ["{{backend_url}}"],
+              "path": ["api", "products"],
+              "query": [
+                { "key": "category", "value": "Electronics" },
+                { "key": "limit", "value": "10" }
+              ]
+            },
+            "description": "Filter products by L1 category (Footwear, Electronics, Clothing, Beauty)."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Product by ID",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{backend_url}}/api/products/{{product_id}}",
+            "description": "Full product detail including platforms, attributes, and prices.\n\nRun **List Products** first to populate `{{product_id}}`."
+          },
+          "response": []
+        },
+        {
+          "name": "Compare Products",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{backend_url}}/api/products/compare?ids={{product_id}},{{product_id_2}}",
+              "host": ["{{backend_url}}"],
+              "path": ["api", "products", "compare"],
+              "query": [
+                { "key": "ids", "value": "{{product_id}},{{product_id_2}}", "description": "Comma-separated product IDs (max 5)" }
+              ]
+            },
+            "description": "Compare up to 5 products side-by-side across platforms."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "3. Prices",
+      "description": "Price history, latest prices, and SSE trigger.",
+      "item": [
+        {
+          "name": "Latest Prices",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{backend_url}}/api/prices/latest",
+            "description": "Most recent price per product/platform combination (up to 100 rows)."
+          },
+          "response": []
+        },
+        {
+          "name": "Price History (90 days)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{backend_url}}/api/prices/{{product_id}}/history?days=90",
+              "host": ["{{backend_url}}"],
+              "path": ["api", "prices", "{{product_id}}", "history"],
+              "query": [
+                { "key": "days", "value": "90", "description": "History window in days" }
+              ]
+            },
+            "description": "Time-series price data for charts on the Product Detail page."
+          },
+          "response": []
+        },
+        {
+          "name": "Simulate Price Change (SSE)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"productId\": \"{{product_id}}\",\n  \"platform\": \"amazon\",\n  \"newPrice\": 11999\n}"
+            },
+            "url": "{{backend_url}}/api/prices/simulate",
+            "description": "Manually insert a price and publish to Redis SSE channel.\n\n**Operation:** Open frontend (http://localhost:5173) — green live banner should update instantly.\n\nAlso works with SSE stream: `GET /api/stream/prices`"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "4. Deduplication & Enrichment",
+      "description": "Cross-platform dedup pipeline and attribute enrichment (proxied to ML service).",
+      "item": [
+        {
+          "name": "Dedup Check (Nike demo)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title1\": \"Nike Air Max Black 42\",\n  \"title2\": \"Nike Airmax Shoes Size 8 Black\",\n  \"brand\": \"Nike\",\n  \"category\": \"Footwear\"\n}"
+            },
+            "url": "{{backend_url}}/api/dedup/check",
+            "description": "Runs the 6-stage dedup pipeline:\n1. Pre-filter → 2. Size normalise → 3. Title clean → 4. Fuzzy match → 5. Embedding → 6. Human review\n\n**Expected:** `{ \"is_match\": true, \"confidence\": 0.85+, \"method\": \"fuzzy\", \"stage_reached\": 4 }`"
+          },
+          "response": []
+        },
+        {
+          "name": "Dedup Check (No match)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title1\": \"Samsung Galaxy S24 Ultra\",\n  \"title2\": \"Nike Air Max 270\",\n  \"brand\": \"Samsung\"\n}"
+            },
+            "url": "{{backend_url}}/api/dedup/check",
+            "description": "Different brands — should reject at pre-filter stage."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Dedup Mappings",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{backend_url}}/api/dedup/mappings",
+            "description": "Returns confirmed cross-platform product links from `product_mappings` table."
+          },
+          "response": []
+        },
+        {
+          "name": "Enrich Product",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"productId\": \"{{product_id}}\"\n}"
+            },
+            "url": "{{backend_url}}/api/dedup/enrich",
+            "description": "Extracts color, material, size, category via rule-based engine.\n\nFalls back to GPT-4o-mini if `OPENAI_API_KEY` is set and rule coverage < 80%.\n\nUpdates product in database with enriched attributes."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "5. Crawler",
+      "description": "Background HTTP crawler — real-time price fetching and monitoring.",
+      "item": [
+        {
+          "name": "Crawler Status",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{backend_url}}/api/crawler/status",
+            "description": "Live crawler state: jobs, platform metrics, HTTP fetch stats, recent events.\n\nCheck `metrics.httpStats`:\n- `success` = real HTTP fetches\n- `fallback` = simulated prices\n- `failed` = HTTP errors"
+          },
+          "response": []
+        },
+        {
+          "name": "Test HTTP Fetch (Myntra)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"platform\": \"myntra\",\n  \"url\": \"https://www.myntra.com/foundation/maybelline/maybelline-fit-me-matteporeless-16h-oil-control-foundation-30-ml---shade-339/30374802/buy\"\n}"
+            },
+            "url": "{{backend_url}}/api/crawler/test-fetch",
+            "description": "Fetches a **real price** from Myntra without writing to DB.\n\n**Expected:** `{ \"success\": true, \"result\": { \"price\": 454, \"method\": \"http_myntra\" } }`"
+          },
+          "response": []
+        },
+        {
+          "name": "Test HTTP Fetch (Amazon)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"platform\": \"amazon\",\n  \"url\": \"https://www.amazon.in/dp/B0CHWRXHHT\"\n}"
+            },
+            "url": "{{backend_url}}/api/crawler/test-fetch",
+            "description": "Amazon often blocks datacenter IPs.\n\n**If blocked:** Set `SCRAPERAPI_KEY` in `.env` and restart backend."
+          },
+          "response": []
+        },
+        {
+          "name": "Run Crawl Tick Now",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": "{{backend_url}}/api/crawler/tick",
+            "description": "Forces one immediate crawl cycle (picks random products, HTTP fetch + DB update + SSE push)."
+          },
+          "response": []
+        },
+        {
+          "name": "Pause Crawler",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": "{{backend_url}}/api/crawler/pause",
+            "description": "Stops background crawl ticks until resumed."
+          },
+          "response": []
+        },
+        {
+          "name": "Resume Crawler",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": "{{backend_url}}/api/crawler/resume",
+            "description": "Resumes background crawling."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "6. ML Service (Direct)",
+      "description": "Call Python ML service directly — useful when debugging without the Node.js proxy.",
+      "item": [
+        {
+          "name": "Dedup Check (Direct)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title1\": \"Nike Air Max Black 42\",\n  \"title2\": \"Nike Airmax Shoes Size 8 Black\",\n  \"brand\": \"Nike\",\n  \"category\": \"Footwear\"\n}"
+            },
+            "url": "{{ml_url}}/dedup/check",
+            "description": "Same as backend `/api/dedup/check` but hits ML service directly."
+          },
+          "response": []
+        },
+        {
+          "name": "Enrich Product (Direct)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"product\": {\n    \"product_id\": \"demo123\",\n    \"title\": \"Nike Air Max 270 React Black Running Shoes EU 42\",\n    \"brand\": \"Nike\",\n    \"attributes\": {}\n  }\n}"
+            },
+            "url": "{{ml_url}}/enrich",
+            "description": "Rule-based enrichment on raw product object.\n\nReturns extracted color, material, size, category with confidence scores."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "7. Streaming (SSE)",
+      "description": "Server-Sent Events for live price updates.\n\nPostman note: Use **Send and Download** or open in browser. Events arrive when prices change via crawler or simulate endpoint.",
+      "item": [
+        {
+          "name": "Stream Price Updates (SSE)",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Accept", "value": "text/event-stream" }],
+            "url": "{{backend_url}}/api/stream/prices",
+            "description": "Long-lived SSE connection. Each event:\n```json\n{\n  \"type\": \"PRICE_CHANGE\",\n  \"productId\": \"...\",\n  \"platform\": \"myntra\",\n  \"newPrice\": 749,\n  \"title\": \"Nike Dri-FIT Running T-Shirt Black\",\n  \"source\": \"http_crawler\",\n  \"fetchMethod\": \"http_myntra\",\n  \"timestamp\": \"...\"\n}\n```\n\n**Test flow:**\n1. Open this request (keep connection open)\n2. In another tab, run **Simulate Price Change** or **Run Crawl Tick Now**\n3. Watch events arrive in real time"
+          },
+          "response": []
+        }
+      ]
+    }
+  ]
+}

@@ -6,7 +6,9 @@ const { createPool } = require('./services/db');
 const productRoutes = require('./routes/products');
 const priceRoutes = require('./routes/prices');
 const dedupRoutes = require('./routes/dedup');
+const crawlerRoutes = require('./routes/crawler');
 const healthRoutes = require('./routes/health');
+const { getCrawler } = require('./services/crawler');
 
 const app = Fastify({ logger: true });
 
@@ -28,6 +30,7 @@ async function start() {
   await app.register(productRoutes, { prefix: '/api/products' });
   await app.register(priceRoutes, { prefix: '/api/prices' });
   await app.register(dedupRoutes, { prefix: '/api/dedup' });
+  await app.register(crawlerRoutes, { prefix: '/api/crawler' });
 
   // SSE endpoint for live price updates
   app.get('/api/stream/prices', async (req, reply) => {
@@ -54,6 +57,12 @@ async function start() {
   const port = process.env.PORT || 3001;
   await app.listen({ port, host: '0.0.0.0' });
   console.log(`Backend running on port ${port}`);
+
+  if (process.env.CRAWLER_ENABLED !== 'false') {
+    getCrawler(app.db, app.redis).start();
+  } else {
+    console.log('Crawler disabled (CRAWLER_ENABLED=false)');
+  }
 }
 
 start().catch(err => {
